@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "I+6asrRAowwi/nlN/8RRC4c2A5QnbgeqyS8mks9OCi/RqLYgkOnS8sly1iRUVlQIab7PbrCsen8oXcqqwUmA7w==",
+  "dgSpecHash": "Mypj5HSmUOjZmg9t2p3N4jfLq0tzOImxHe3Ukr8yb+qyAAWE9t/acn0ShOoq/wUJrf26LCb4v9iAgKGNfzcZ6Q==",
   "success": true,
   "projectFilePath": "E:\\shazan\\SteamInventoryManager\\SteamInventoryManager.Console\\SteamInventoryManager.Console.csproj",
   "expectedPackageFiles": [
@@ -8,6 +8,8 @@
     "C:\\Users\\Shaz\\.nuget\\packages\\closedxml.report\\0.2.4\\closedxml.report.0.2.4.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\documentformat.openxml\\2.7.2\\documentformat.openxml.2.7.2.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\excelnumberformat\\1.0.10\\excelnumberformat.1.0.10.nupkg.sha512",
+    "C:\\Users\\Shaz\\.nuget\\packages\\gameloop.vdf\\0.6.1\\gameloop.vdf.0.6.1.nupkg.sha512",
+    "C:\\Users\\Shaz\\.nuget\\packages\\gameloop.vdf.jsonconverter\\0.2.1\\gameloop.vdf.jsonconverter.0.2.1.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\microsoft.csharp\\4.7.0\\microsoft.csharp.4.7.0.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\microsoft.extensions.configuration\\5.0.0\\microsoft.extensions.configuration.5.0.0.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\microsoft.extensions.configuration.abstractions\\5.0.0\\microsoft.extensions.configuration.abstractions.5.0.0.nupkg.sha512",
@@ -52,6 +54,11 @@
     "C:\\Users\\Shaz\\.nuget\\packages\\system.buffers\\4.3.0\\system.buffers.4.3.0.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\system.collections\\4.3.0\\system.collections.4.3.0.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\system.collections.concurrent\\4.3.0\\system.collections.concurrent.4.3.0.nupkg.sha512",
+    "C:\\Program Files\\dotnet\\sdk\\NuGetFallbackFolder\\system.collections.nongeneric\\4.3.0\\system.collections.nongeneric.4.3.0.nupkg.sha512",
+    "C:\\Program Files\\dotnet\\sdk\\NuGetFallbackFolder\\system.collections.specialized\\4.3.0\\system.collections.specialized.4.3.0.nupkg.sha512",
+    "C:\\Users\\Shaz\\.nuget\\packages\\system.componentmodel\\4.3.0\\system.componentmodel.4.3.0.nupkg.sha512",
+    "C:\\Program Files\\dotnet\\sdk\\NuGetFallbackFolder\\system.componentmodel.primitives\\4.3.0\\system.componentmodel.primitives.4.3.0.nupkg.sha512",
+    "C:\\Program Files\\dotnet\\sdk\\NuGetFallbackFolder\\system.componentmodel.typeconverter\\4.3.0\\system.componentmodel.typeconverter.4.3.0.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\system.console\\4.3.0\\system.console.4.3.0.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\system.diagnostics.debug\\4.3.0\\system.diagnostics.debug.4.3.0.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\system.diagnostics.diagnosticsource\\4.3.0\\system.diagnostics.diagnosticsource.4.3.0.nupkg.sha512",
@@ -109,7 +116,8 @@
     "C:\\Users\\Shaz\\.nuget\\packages\\system.threading.tasks.extensions\\4.3.0\\system.threading.tasks.extensions.4.3.0.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\system.threading.timer\\4.3.0\\system.threading.timer.4.3.0.nupkg.sha512",
     "C:\\Users\\Shaz\\.nuget\\packages\\system.xml.readerwriter\\4.3.0\\system.xml.readerwriter.4.3.0.nupkg.sha512",
-    "C:\\Users\\Shaz\\.nuget\\packages\\system.xml.xdocument\\4.3.0\\system.xml.xdocument.4.3.0.nupkg.sha512"
+    "C:\\Users\\Shaz\\.nuget\\packages\\system.xml.xdocument\\4.3.0\\system.xml.xdocument.4.3.0.nupkg.sha512",
+    "C:\\Users\\Shaz\\.nuget\\packages\\valvekeyvalue\\0.6.0.5\\valvekeyvalue.0.6.0.5.nupkg.sha512"
   ],
   "logs": []
 }

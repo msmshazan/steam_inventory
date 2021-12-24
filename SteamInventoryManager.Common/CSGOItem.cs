@@ -27,11 +27,13 @@ namespace SteamInventoryManager.Common
         private string musickitDescription;
         private string itemName;
         private string itemDescription;
-        public decimal value;
+        public decimal buff163Value;
+        public decimal steamValue;
         private StatTrackType statTrackType;
         private DateTime tradableAfter;
         private bool isGrafitti;
         private Sticker[] stickers;
+        public bool isSticker => itemName == "Sticker";
         public bool isStatTrack => !(statTrackType == StatTrackType.None);
         public string marketName
         {
@@ -39,15 +41,17 @@ namespace SteamInventoryManager.Common
             {
                 var result = "";
                 result = itemName;
+                if(IsStorageUnit) result = $"{customName} | {result}";
                 if (result == "Music Kit") result = $"{result} | {musickitName}";
                 if (result == "Sticker") result = $"{result} | {stickers[0].Name}";
                 if (result == "Graffiti" || result == "Sealed Graffiti") result = $"{result} | {stickers[0].Name} ({sprayName})";
-                if (isStatTrack) result = $"StatTrak™ {result}";
+                if (isStatTrack) result = $"StatTrak\u2122 {result}";
                 if (paintName != null) result = $"{result} | {paintName}";
                 if (exterior != "N/A") result = $"{result} ({exterior})";
                 return result;
             }
         }
+
         public string exterior
         {
             get
@@ -76,7 +80,7 @@ namespace SteamInventoryManager.Common
         public uint StatTrackCount { get => statTrackCount; set => statTrackCount = value; }
         public string ItemName { get => itemName; set => itemName = value; }
         public string ItemDescription { get => itemDescription; set => itemDescription = value; }
-        public StatTrackType StatTrackType { get => statTrackType; set => statTrackType = value; }
+        public StatTrackType StatTrakType { get => statTrackType; set => statTrackType = value; }
         public DateTime TradableAfter { get => tradableAfter; set => tradableAfter = value; }
         public Sticker[] Stickers { get => stickers; set => stickers = value; }
         public bool IsMusicKit { get => isMusicKit; set => isMusicKit = value; }
@@ -93,10 +97,12 @@ namespace SteamInventoryManager.Common
                 result.Quantity = 1;
                 result.MarketName = marketName;
                 result.Float = paintWear;
-                result.Value = value;
+                result.SteamValue = steamValue;
+                result.Buff163Value = buff163Value;
                 if (result.MarketName.Contains("Sticker", StringComparison.OrdinalIgnoreCase)) result.IsSticker = true;
                 if (result.MarketName.Contains("Case",StringComparison.OrdinalIgnoreCase)) result.IsCase = true;
                 result.IsSpray = IsGrafitti;
+                result.IsTradeable = DateTime.Now > TradableAfter;
                 return result;
         }
     }
@@ -105,11 +111,13 @@ namespace SteamInventoryManager.Common
     {
         public int Quantity { get; set; }
         public string MarketName { get; set; }
-        public decimal Value { get; set; }
+        public decimal SteamValue { get; set; }
+        public decimal Buff163Value { get; set; }
         public bool IsStorageUnit { get; set; }
         public float Float { get; set; }
         public bool IsCase { get; set; }
         public bool IsSpray { get; set; }
         public bool IsSticker { get; set; }
+        public bool IsTradeable { get; set; }
     }
 }

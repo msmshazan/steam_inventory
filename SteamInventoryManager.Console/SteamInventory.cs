@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
+using ValveKeyValue;
 using ServiceStack.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -20,6 +21,8 @@ using System.Globalization;
 using System.Diagnostics;
 using ClosedXML.Report;
 using System.Security;
+using System.Text.RegularExpressions;
+using System.Net;
 
 namespace SteamInventoryManager.Console
 {
@@ -35,15 +38,69 @@ namespace SteamInventoryManager.Console
                         options.SingleLine = true;
                         options.TimestampFormat = "hh:mm:ss ";
                     }));
-            HttpClient = new HttpClient();
             logger = loggerFactory.CreateLogger<Program>();
-            csgoResources = JObject.Parse(File.ReadAllText("csgo_english.json"));
-            csgoItems = JObject.Parse(File.ReadAllText("items_game.json"));
-            prices = new Dictionary<string, decimal>();
+            var today = DateTime.Now.ToString("yyyy/MM/dd");
+            WebClient = new DownloadWebClient();
+            var kvSerializer = KVSerializer.Create(KVSerializationFormat.KeyValues1Text);
+            {
+                var result = WebClient.DownloadString(@"https://raw.githubusercontent.com/SteamDatabase/GameTracking-CSGO/master/csgo/resource/csgo_english.txt");
+                if (result != null)
+                {
+#if true
+                    result = CSharpCommentRegex.Replace(result, me =>
+                    {
+                        if (me.Value.StartsWith("/*") || me.Value.StartsWith("//"))
+                        {
+                            return me.Groups[2].Value;
+                        }
+                        return me.Value;
+                    });
+#endif
+                    var blacklistedStrings = new String[] {
+                            @"\x00A2" ,
+                            @"n\Saturday",
+                            @"\'allow third party software\'"
+                        };
+                    foreach (var blacklisted in blacklistedStrings)
+                    {
+                        result = result.Replace(blacklisted, "");
+                    }
+                    var vdf = kvSerializer.Deserialize(new MemoryStream(Encoding.UTF8.GetBytes(result ?? "")), new KVSerializerOptions() { HasEscapeSequences = true });
+                    csgoResources = vdf;
+                    tokens = vdf.Children.Search("Tokens");
+                }
+            }
+            {
+                var result = WebClient.DownloadString(@"https://raw.githubusercontent.com/SteamDatabase/GameTracking-CSGO/master/csgo/scripts/items/items_game.txt");
+                if (result != null)
+                {
+                    var vdf = kvSerializer.Deserialize(new MemoryStream(Encoding.UTF8.GetBytes(result ?? "")), new KVSerializerOptions() { HasEscapeSequences = true });
+                    csgoItems = vdf;
+                }
+            }
+
+            {
+                var result = WebClient.DownloadString($"https://prices.csgotrader.app/{today}/steam.json");
+                if (result != null)
+                {
+                    steamPrices = JObject.Parse(result);
+                }
+
+            }
+            { 
+                var result = WebClient.DownloadString($"https://prices.csgotrader.app/{today}/buff163.json");
+                if (result != null)
+                {
+                    buff163Prices = JObject.Parse(result);
+                }
+            }
+
+            //CopyDataFromSteamClientIfExists();
             //System.Console.Write("Please enter Steam Currency Region ([1 = \"USD\",2 = \"GBP\",3 = \"EURO\"]) :");
             //currencyRegion = int.Parse(System.Console.ReadLine());
             System.Console.Write("Please enter Steam Login username :");
             user = System.Console.ReadLine();
+            //if(!File.Exists($"sentry.{ user}.bin"))
             {
                 ConsoleKeyInfo i;
                 System.Console.Write("Please enter Steam Login password :");
@@ -55,7 +112,7 @@ namespace SteamInventoryManager.Console
                     {
                         if (pass.Length > 0)
                         {
-                            pass = pass.Substring(0,(pass.Length - 1 ));
+                            pass = pass.Substring(0, pass.Length - 1);
                             System.Console.Write("\b \b");
                         }
                     }
@@ -64,32 +121,32 @@ namespace SteamInventoryManager.Console
                         pass += (i.KeyChar);
                         System.Console.Write("*");
                     }
-                    
+
                     // Exit if Enter key is pressed.
                 } while (i.Key != ConsoleKey.Enter);
                 pass = pass.Substring(0, (pass.Length - 1)); // remove \r
                 System.Console.Write("\n");
             }
-            
-            var cellid = 0u;
+
+            cellId = 0u;
             inventory = new Dictionary<ulong, CSGOItem>();
             storageUnits = new Dictionary<ulong, HashSet<ulong>>();
             // if we've previously connected and saved our cellid, load it.
             if (File.Exists("cellid.txt"))
             {
-                if (!uint.TryParse(File.ReadAllText("cellid.txt"), out cellid))
+                if (!uint.TryParse(File.ReadAllText("cellid.txt"), out cellId))
                 {
                     logger.LogInformation("Error parsing cellid from cellid.txt. Continuing with cellid 0.");
-                    cellid = 0;
+                    cellId = 0;
                 }
                 else
                 {
-                    logger.LogInformation($"Using persisted cell ID {cellid}");
+                    logger.LogInformation($"Using persisted cell ID {cellId}");
                 }
             }
 
             var configuration = SteamConfiguration.Create(b =>
-               b.WithCellID(cellid)
+               b.WithCellID(cellId)
                 .WithServerListProvider(new FileStorageServerListProvider("servers_list.bin")));
             // create our steamclient instance
             steamClient = new SteamClient(configuration);
@@ -174,7 +231,7 @@ namespace SteamInventoryManager.Console
                 if (isRunning) manager.RunWaitCallbacks(TimeSpan.FromSeconds(1));
             }
         }
-        HttpClient HttpClient;
+        WebClient WebClient;
         private void ValuateInventory()
         {
             try
@@ -183,32 +240,27 @@ namespace SteamInventoryManager.Console
                 {
                     if (!item.IsStorageUnit)
                     {
-                        if (prices.TryGetValue(item.marketName, out var itemPrice))
                         {
-                            item.value = itemPrice;
-                            logger.LogInformation($"Price of {item.marketName} : {item.value}");
-                        }
-                        else
-                        {
-                            string url = @$"https://steamcommunity.com/market/priceoverview/?appid=730&currency={currencyRegion}&market_hash_name={item.marketName}";
-                            using (var response = HttpClient.GetAsync(url).Result)
+                            var steamvalue = 0.0m;
+                            var buff163value = 0.0m;
+                            if (steamPrices[item.marketName] != null)
                             {
-                                if (response.IsSuccessStatusCode)
+                                if(decimal.TryParse((string)(steamPrices[item.marketName]["last_7d"]),out var res))
                                 {
-                                    using (var content = response.Content)
-                                    {
-                                        var result = content.ReadAsStringAsync().Result;
-                                        var root = JObject.Parse(result);
-                                        if (decimal.TryParse((string)root["lowest_price"], NumberStyles.Currency, null, out var price))
-                                        {
-                                            item.value = price;
-                                            prices.Add(item.marketName, price);
-                                            logger.LogInformation($"Price of {item.marketName} : {item.value}");
-                                        }
-                                    }
+                                    steamvalue = res;
                                 }
                             }
-                            Thread.Sleep(5000);
+                            if (buff163Prices[item.marketName] != null)
+                            {
+                                if (decimal.TryParse((string)(buff163Prices[item.marketName]["starting_at"]["price"]), out var res))
+                                {
+                                    buff163value = res;
+                                }
+                            }
+                            item.steamValue = steamvalue;
+                            item.buff163Value = buff163value;
+                            logger.LogInformation($"Price of {item.marketName} : {item.steamValue} (steam) {item.buff163Value} (buff163)");
+                        
                         }
                     }
                 }
@@ -217,7 +269,8 @@ namespace SteamInventoryManager.Console
                 {
                     var unitId = unit.Key;
                     var unitItemsId = unit.Value.ToArray();
-                    inventory[unitId].value = unitItemsId.Sum(x => inventory[x].value);
+                    inventory[unitId].steamValue = unitItemsId.Sum(x => inventory[x].steamValue);
+                    inventory[unitId].buff163Value = unitItemsId.Sum(x => inventory[x].buff163Value);
                 }
             }
             catch (Exception ex)
@@ -231,6 +284,26 @@ namespace SteamInventoryManager.Console
         const string LoginKeyFileName = "loginkey.txt";
 
         void SaveLoginKey(string loginKey) => File.WriteAllText(LoginKeyFileName, loginKey);
+
+        void CopyDataFromSteamClientIfExists()
+        {
+            string VdfFile = @"C:\Program Files (x86)\Steam\config\config.vdf";
+            if (File.Exists(VdfFile))
+            {
+                var configData = KeyValue.LoadFromString(File.ReadAllText(VdfFile));
+                var config = configData["Software"]["Valve"]["Steam"];
+                var sentryFileLocation = config["SentryFile"].Value;
+                var cellId = config["CurrentCellID"];
+                File.WriteAllText("cellid.txt", cellId.ToString());
+                var users = config["Accounts"].Children;
+                foreach (var userdata in users)
+                {
+                    var user = (userdata).Name;
+
+                    File.Copy(sentryFileLocation, $"sentry.{user}.bin", true);
+                }
+            }
+        }
 
         string ReadLoginKey()
         {
@@ -283,6 +356,7 @@ namespace SteamInventoryManager.Console
             {
                 { (uint) ESOMsg.k_ESOMsg_Create , OnItemAdded },
                 { (uint) ECsgoGCMsg.k_EMsgGCCStrike15_v2_GC2ClientGlobalStats , OnReady},
+                { (uint) EGCItemCustomizationNotification.k_EGCItemCustomizationNotification_CasketContents, OnNotificationGetStorageUnitContents},
                 { ( uint )EGCBaseClientMsg.k_EMsgGCClientWelcome, OnClientWelcome },
                 { (uint )EGCItemMsg.k_EMsgGCItemCustomizationNotification ,OnReady },
             };
@@ -386,13 +460,14 @@ namespace SteamInventoryManager.Console
             }
         }
 
+
+
         private CSGOItem ProcessEconomyItem(CSOEconItem item)
         {
 
             var csgoItem = new CSGOItem();
-            csgoItem.StatTrackType = StatTrackType.None;
+            csgoItem.StatTrakType = StatTrackType.None;
             csgoItem.Id = item.id;
-            Dictionary<string, object> tokens = new Dictionary<string, object>(csgoResources["lang"]["Tokens"].ToObject<IDictionary<string, object>>(), StringComparer.CurrentCultureIgnoreCase);
             csgoItem.IsStorageUnit = false;
             csgoItem.IsNew = ((item.inventory >> 30) & 1) == 0 ? false : true;
             csgoItem.Position = (csgoItem.IsNew ? 0 : item.inventory & 0xFFFF);
@@ -419,9 +494,9 @@ namespace SteamInventoryManager.Console
             if (paintIndexBytes != null)
             {
                 var paintIndex = (uint)(BitConverter.ToSingle(paintIndexBytes));
-                var paintkitDef = csgoItems["items_game"]["paint_kits"][paintIndex.ToString()];
+                var paintkitDef = csgoItems.Children.Search("paint_kits").Search(paintIndex.ToString());
                 var paintkitNameTag = ((string)paintkitDef["description_tag"]).Substring(1);
-                var paintkitName = ((string)tokens[paintkitNameTag]);
+                var paintkitName = GetTokensValue(paintkitNameTag);
                 while (paintkitName.Contains('<'))
                 {
                     var startIdx = paintkitName.IndexOf('<');
@@ -429,7 +504,7 @@ namespace SteamInventoryManager.Console
                     paintkitName = paintkitName.Remove(startIdx, count);
                 }
                 var paintkitDescriptionTag = ((string)paintkitDef["description_string"]).Substring(1);
-                var paintkitDescription = (string)tokens[paintkitDescriptionTag];
+                var paintkitDescription = GetTokensValue(paintkitDescriptionTag);
                 while (paintkitDescription.Contains('<'))
                 {
                     var startIdx = paintkitDescription.IndexOf('<');
@@ -462,9 +537,9 @@ namespace SteamInventoryManager.Console
             {
                 csgoItem.IsMusicKit = true;
                 var musicKitId = BitConverter.ToUInt32(musicIdBytes);
-                var musickitDef = csgoItems["items_game"]["music_definitions"][musicKitId.ToString()];
+                var musickitDef = csgoItems.Children.Search("music_definitions")[musicKitId.ToString()];
                 var musickitNameTag = ((string)musickitDef["loc_name"]).Substring(1);
-                var musickitName = (string)tokens[musickitNameTag];
+                var musickitName = GetTokensValue(musickitNameTag);
                 while (musickitName.Contains('<'))
                 {
                     var startIdx = musickitName.IndexOf('<');
@@ -472,7 +547,7 @@ namespace SteamInventoryManager.Console
                     musickitName = musickitName.Remove(startIdx, count);
                 }
                 var musickitDescriptionTag = ((string)musickitDef["loc_description"]).Substring(1);
-                var musickitDescription = (string)tokens[musickitDescriptionTag];
+                var musickitDescription = GetTokensValue(musickitDescriptionTag);
                 while (musickitDescription.Contains('<'))
                 {
                     var startIdx = musickitDescription.IndexOf('<');
@@ -485,7 +560,7 @@ namespace SteamInventoryManager.Console
             var killCountTypeBytes = getAttributeValueBytes(81);
             if (killCountTypeBytes != null)
             {
-                csgoItem.StatTrackType = (StatTrackType)BitConverter.ToUInt32(killCountTypeBytes);
+                csgoItem.StatTrakType = (StatTrackType)BitConverter.ToUInt32(killCountTypeBytes);
             }
 
             var tradableAfterDateBytes = getAttributeValueBytes(75);
@@ -501,7 +576,7 @@ namespace SteamInventoryManager.Console
             if (sprayTintIdBytes != null)
             {
                 var sprayTintId = BitConverter.ToUInt32(sprayTintIdBytes);
-                var sprayTintName = (string)tokens[$"Attrib_SprayTintValue_{sprayTintId}"];
+                var sprayTintName = GetTokensValue($"Attrib_SprayTintValue_{sprayTintId}");
                 csgoItem.SprayName = sprayTintName;
             }
             //stickers code ref: (https://github.com/DoctorMcKay/node-globaloffensive/blob/2b3ad4a678034c472096fa198af9424695e1c4ca/handlers.js#L167)
@@ -517,9 +592,9 @@ namespace SteamInventoryManager.Console
                     sticker.Slot = i;
                     sticker.Sticker_id = BitConverter.ToUInt32(stickerIdBytes);
                     {
-                        var stickerDef = csgoItems["items_game"]["sticker_kits"][sticker.Sticker_id.ToString()];
+                        var stickerDef = csgoItems.Children.Search("sticker_kits")[sticker.Sticker_id.ToString()];
                         var stickerNameTag = ((string)stickerDef["item_name"]).Substring(1);
-                        var stickerName = (string)tokens[stickerNameTag];
+                        var stickerName = GetTokensValue(stickerNameTag);
                         while (stickerName.Contains('<'))
                         {
                             var startIdx = stickerName.IndexOf('<');
@@ -527,7 +602,7 @@ namespace SteamInventoryManager.Console
                             stickerName = stickerName.Remove(startIdx, count);
                         }
                         var stickerDescriptionTag = ((string)stickerDef["description_string"]).Substring(1);
-                        var stickerDescription = (string)tokens[stickerDescriptionTag];
+                        var stickerDescription = GetTokensValue(stickerDescriptionTag);
                         while (stickerDescription.Contains('<'))
                         {
                             var startIdx = stickerDescriptionTag.IndexOf('<');
@@ -554,13 +629,13 @@ namespace SteamInventoryManager.Console
 
             }
             csgoItem.Stickers = Stickers.ToArray();
-            var itemDef = csgoItems["items_game"]["items"][item.def_index.ToString()];
+            var itemDef = csgoItems.Search("items")[item.def_index.ToString()];
             {
 
                 if (itemDef["item_name"] != null)
                 {
                     var itemNameTag = ((string)itemDef["item_name"]).Substring(1);
-                    var itemName = (string)tokens[itemNameTag];
+                    var itemName = GetTokensValue(itemNameTag);
                     while (itemName.Contains('<'))
                     {
                         var startIdx = itemName.IndexOf('<');
@@ -573,7 +648,7 @@ namespace SteamInventoryManager.Console
                 if (itemDef["item_description"] != null)
                 {
                     var itemDescriptionTag = ((string)itemDef["item_description"]).Substring(1);
-                    var itemDescription = (string)tokens[itemDescriptionTag];
+                    var itemDescription = GetTokensValue(itemDescriptionTag);
                     while (itemDescription.Contains('<'))
                     {
                         var startIdx = itemDescription.IndexOf('<');
@@ -588,10 +663,10 @@ namespace SteamInventoryManager.Console
             {
                 if (itemDef["prefab"] != null)
                 {
-                    var prefabDef = csgoItems["items_game"]["prefabs"][(string)itemDef["prefab"]];
+                    var prefabDef = csgoItems.Children.Search("prefabs")[(string)itemDef["prefab"]];
                     if (prefabDef["item_name"] != null)
                     {
-                        var itemName = (string)tokens[((string)prefabDef["item_name"]).Substring(1)];
+                        var itemName = GetTokensValue(((string)prefabDef["item_name"]).Substring(1));
                         while (itemName.Contains('<'))
                         {
                             var startIdx = itemName.IndexOf('<');
@@ -609,10 +684,10 @@ namespace SteamInventoryManager.Console
             {
                 if (itemDef["prefab"] != null)
                 {
-                    var prefabDef = csgoItems["items_game"]["prefabs"][(string)itemDef["prefab"]];
+                    var prefabDef = csgoItems.Children.Search("prefabs")[(string)itemDef["prefab"]];
                     if (prefabDef["item_description"] != null)
                     {
-                        var itemDescription = (string)tokens[((string)prefabDef["item_description"]).Substring(1)];
+                        var itemDescription = GetTokensValue(((string)prefabDef["item_description"]).Substring(1));
                         while (itemDescription.Contains('<'))
                         {
                             var startIdx = itemDescription.IndexOf('<');
@@ -626,7 +701,7 @@ namespace SteamInventoryManager.Console
             }
             if (csgoItem.ItemName.Contains("Case", StringComparison.OrdinalIgnoreCase))
             {
-                if (csgoItem.ItemDescription == null)
+                if (csgoItem.ItemDescription == null && item.def_index == 4001 && item.attribute.Count == 0)
                 {
                     csgoItem.ItemName = "Fake CSGO Case";
                 }
@@ -677,10 +752,10 @@ namespace SteamInventoryManager.Console
             steamUser.LogOn(new SteamUser.LogOnDetails
             {
                 Username = user,
-                Password = pass,
                 ShouldRememberPassword = true,
+                Password = pass,
+                CellID = (cellId),
                 LoginKey = ReadLoginKey(),
-
                 // in this sample, we pass in an additional authcode
                 // this value will be null (which is the default) for our first logon attempt
                 AuthCode = authCode,
@@ -688,6 +763,7 @@ namespace SteamInventoryManager.Console
                 // if the account is using 2-factor auth, we'll provide the two factor code instead
                 // this will also be null on our first logon attempt
                 TwoFactorCode = twoFactorAuth,
+
                 // our subsequent logons use the hash of the sentry file as proof of ownership of the file
                 // this will also be null for our first (no authcode) and second (authcode only) logon attempts
                 SentryFileHash = sentryHash
@@ -815,24 +891,42 @@ namespace SteamInventoryManager.Console
             logger.LogInformation("Done!");
         }
 
+        private string GetTokensValue(string value)
+        {
+            var result = tokens.Where(x => x.Name.ToUpper().Trim() == value.ToUpper().Trim()).First();
+            return result == null ? null : result.Value.ToString();
+        }
+
+        // code from http://stackoverflow.com/questions/3524317/regex-to-strip-line-comments-from-c-sharp/3524689#3524689
+        // 4 combination of patterns:
+        // - block comments (//...)
+        // - line comments (/*...*/)
+        // - string ("...")
+        // - literal (@"...")
+        // new-line character(\r?\n or end-of-line) will be captured by group 2.
+        private static Regex CSharpCommentRegex =
+            new Regex(@"(\/\/.*?(\r?\n|$))|(\/\*(?:[\s\S]*?)\*\/)|(""(?:\\[^\n]|[^""\n])*"")|(@(?:""[^""]*"")+)", RegexOptions.Compiled);
         SteamClient steamClient;
         CallbackManager manager;
         SteamUser steamUser;
         SteamGameCoordinator gameCoordinator;
         Dictionary<ulong, CSGOItem> inventory;
         Dictionary<ulong, HashSet<ulong>> storageUnits;
-        Dictionary<string, decimal> prices;
+        JObject buff163Prices;
+        JObject steamPrices;
         JsonOutput jsonOutput;
         volatile bool isRunning;
         volatile bool doReconnect = true;
         bool isLoggedIn;
         string user;
         string pass;
+        uint cellId;
         string authCode, twoFactorAuth;
         public ILogger<Program> logger;
         int currencyRegion = 1;
-        JObject csgoResources;
-        JObject csgoItems;
+        KVObject csgoResources;
+        KVObject tokens;
+        KVObject csgoItems;
         const int APPID_DOTA2 = 570;
         const int APPID_TF2 = 440;
         const int APPID_CSGO = 730;
@@ -850,4 +944,26 @@ namespace SteamInventoryManager.Console
         public string name { get; set; }
         public List<OutputCSGOItem> CSGOitems { get; set; }
     }
+
+    public static class UtilExtensions
+    {
+        public static KVObject Search(this IEnumerable<KVObject> obj, string value)
+        {
+            var objs = obj.Where(x => x.Name.ToUpper().Trim() == value.ToUpper().Trim()).SelectMany(x => x.Children);
+            var result = new KVObject(value,objs);
+            return result;
+        }
+
+    }
+
+    class DownloadWebClient : WebClient
+    {
+        protected override WebRequest GetWebRequest(Uri address)
+        {
+            HttpWebRequest request = base.GetWebRequest(address) as HttpWebRequest;
+            request.AutomaticDecompression = DecompressionMethods.All;
+            return request;
+        }
+    }
 }
+
