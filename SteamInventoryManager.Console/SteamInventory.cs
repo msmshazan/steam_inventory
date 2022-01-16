@@ -39,7 +39,8 @@ namespace SteamInventoryManager.Console
                         options.TimestampFormat = "hh:mm:ss ";
                     }));
             logger = loggerFactory.CreateLogger<Program>();
-            var today = DateTime.Now.ToString("yyyy/MM/dd");
+            DateTimeFormatInfo usDtfi = new CultureInfo("en-US", false).DateTimeFormat;
+            var today = DateTime.Now.ToString("yyyy/MM/dd",usDtfi);
             WebClient = new DownloadWebClient();
             var kvSerializer = KVSerializer.Create(KVSerializationFormat.KeyValues1Text);
             {
@@ -72,6 +73,7 @@ namespace SteamInventoryManager.Console
             }
             {
                 var result = WebClient.DownloadString(@"https://raw.githubusercontent.com/SteamDatabase/GameTracking-CSGO/master/csgo/scripts/items/items_game.txt");
+                logger.LogInformation(@$"Downloading : https://raw.githubusercontent.com/SteamDatabase/GameTracking-CSGO/master/csgo/scripts/items/items_game.txt");
                 if (result != null)
                 {
                     var vdf = kvSerializer.Deserialize(new MemoryStream(Encoding.UTF8.GetBytes(result ?? "")), new KVSerializerOptions() { HasEscapeSequences = true });
@@ -81,14 +83,22 @@ namespace SteamInventoryManager.Console
 
             {
                 var result = WebClient.DownloadString($"https://prices.csgotrader.app/{today}/steam.json");
+                logger.LogInformation(@$"Downloading : https://prices.csgotrader.app/{today}/steam.json");
                 if (result != null)
                 {
+                    if (result.Contains("html"))
+                    {
+                        today = DateTime.Today.AddDays(-1).ToString("yyyy/MM/dd",usDtfi);
+                        logger.LogInformation(@$"Downloading : https://prices.csgotrader.app/{today}/steam.json");
+                        result = WebClient.DownloadString($"https://prices.csgotrader.app/{today}/steam.json");
+                    }
                     steamPrices = JObject.Parse(result);
                 }
 
             }
-            { 
+            {
                 var result = WebClient.DownloadString($"https://prices.csgotrader.app/{today}/buff163.json");
+                logger.LogInformation(@$"Downloading : https://prices.csgotrader.app/{today}/buff163.json");
                 if (result != null)
                 {
                     buff163Prices = JObject.Parse(result);
@@ -245,7 +255,7 @@ namespace SteamInventoryManager.Console
                             var buff163value = 0.0m;
                             if (steamPrices[item.marketName] != null)
                             {
-                                if(decimal.TryParse((string)(steamPrices[item.marketName]["last_7d"]),out var res))
+                                if (decimal.TryParse((string)(steamPrices[item.marketName]["last_7d"]), out var res))
                                 {
                                     steamvalue = res;
                                 }
@@ -260,7 +270,7 @@ namespace SteamInventoryManager.Console
                             item.steamValue = steamvalue;
                             item.buff163Value = buff163value;
                             logger.LogInformation($"Price of {item.marketName} : {item.steamValue} (steam) {item.buff163Value} (buff163)");
-                        
+
                         }
                     }
                 }
@@ -336,8 +346,7 @@ namespace SteamInventoryManager.Console
             var msg = new ClientGCMsgProtobuf<CMsgSOSingleObject>(packetMsg);
             if (msg.Body.type_id == 1)
             {
-                //Is an item
-
+                // Is an item
                 var stream = new MemoryStream(msg.Body.object_data);
                 var item = ProtoBuf.Serializer.Deserialize<CSOEconItem>(stream);
                 var csgoItem = ProcessEconomyItem(item);
@@ -399,18 +408,23 @@ namespace SteamInventoryManager.Console
                         switch (cache.type_id)
                         {
                             case 1:
-                                //Inventory
-                                foreach (var obj in cache.object_data)
                                 {
-                                    var stream = new MemoryStream(obj);
-                                    var item = ProtoBuf.Serializer.Deserialize<CSOEconItem>(stream);
-                                    var csgoItem = ProcessEconomyItem(item);
-                                    UpdateInventory(csgoItem);
-                                }
+                                    //Inventory
+                                    foreach (var obj in cache.object_data)
+                                    {
+                                        var stream = new MemoryStream(obj);
+                                        var item = ProtoBuf.Serializer.Deserialize<CSOEconItem>(stream);
+                                        var csgoItem = ProcessEconomyItem(item);
+                                        UpdateInventory(csgoItem);
+                                    }
 
-                                UpdateStorageUnits();
+                                    UpdateStorageUnits();
+                                }
                                 break;
                             default:
+                                {
+
+                                }
                                 break;
                         }
                     }
@@ -605,9 +619,9 @@ namespace SteamInventoryManager.Console
                         var stickerDescription = GetTokensValue(stickerDescriptionTag);
                         while (stickerDescription.Contains('<'))
                         {
-                            var startIdx = stickerDescriptionTag.IndexOf('<');
-                            var count = stickerDescriptionTag.IndexOf('>') - startIdx + 1;
-                            stickerDescription = stickerDescriptionTag.Remove(startIdx, count);
+                            var startIdx = stickerDescription.IndexOf('<');
+                            var count = stickerDescription.IndexOf('>') - startIdx + 1;
+                            stickerDescription = stickerDescription.Remove(startIdx, count);
                         }
                         sticker.Name = stickerName;
                         sticker.Description = stickerDescription;
@@ -950,7 +964,7 @@ namespace SteamInventoryManager.Console
         public static KVObject Search(this IEnumerable<KVObject> obj, string value)
         {
             var objs = obj.Where(x => x.Name.ToUpper().Trim() == value.ToUpper().Trim()).SelectMany(x => x.Children);
-            var result = new KVObject(value,objs);
+            var result = new KVObject(value, objs);
             return result;
         }
 
